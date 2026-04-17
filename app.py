@@ -33,7 +33,6 @@ st.markdown("<h2 style='text-align: center; color: #88B04B;'>Kéfit</h2>", unsaf
 
 opcion = st.sidebar.radio("Navegación", ["Pedido Nuevo", "Detalle del Pedido", "Resumen de Pedidos", "Resumen por Atributo"])
 
-# --- FUNCIÓN PARA LIMPIAR EL DETALLE ---
 def formatear_detalle_texto(detalle_str):
     try:
         lista = ast.literal_eval(detalle_str)
@@ -83,7 +82,6 @@ if opcion == "Pedido Nuevo":
         if st.session_state.carrito:
             st.subheader("Carrito Actual")
             df_car = pd.DataFrame(st.session_state.carrito)
-            # Formatear decimales para la tabla
             st.table(df_car.style.format({"P.Unit": "{:.2f}", "Subtotal": "{:.2f}"}))
             
             total_actual = sum(i['Subtotal'] for i in st.session_state.carrito)
@@ -101,20 +99,16 @@ if opcion == "Pedido Nuevo":
                 st.session_state.carrito = []
                 st.success("¡Pedido guardado!")
 
-# --- 2. DETALLE DEL PEDIDO ---
+# --- 2. DETALLE DEL PEDIDO (SIN CAMBIO DE ESTADO) ---
 elif opcion == "Detalle del Pedido":
-    st.header("🔍 Detalle de Preparación")
+    st.header("🔍 Ficha de Preparación")
     if not st.session_state.pedidos.empty:
         p = st.session_state.pedidos.iloc[-1]
         st.subheader(f"Pedido #{p['ID_Pedido']} - {p['Nombre']}")
         
-        if p['Estado'] == "No Despachado":
-            if st.button("✅ Marcar como DESPACHADO ahora"):
-                st.session_state.pedidos.at[st.session_state.pedidos.index[-1], 'Estado'] = "Despachado"
-                st.rerun()
-
-        st.write(f"**Nicho:** {p['Nicho']} | **Fecha:** {p['Fecha']}")
+        st.write(f"**Nicho:** {p['Nicho']} | **Fecha:** {p['Fecha']} | **Estado Actual:** {p['Estado']}")
         
+        st.divider()
         items = ast.literal_eval(p['Detalle'])
         df_items = pd.DataFrame(items)
         st.table(df_items[['Cant', 'Batido', 'Pres', 'P.Unit', 'Subtotal']].style.format({"P.Unit": "{:.2f}", "Subtotal": "{:.2f}"}))
@@ -122,27 +116,44 @@ elif opcion == "Detalle del Pedido":
         st.markdown(f"## Total a Cobrar: {p['Total']:.2f} Bs")
     else: st.info("No hay pedidos registrados.")
 
-# --- 3. RESUMEN DE PEDIDOS ---
+# --- 3. RESUMEN DE PEDIDOS (CON OPCIÓN DE CAMBIAR ESTADO) ---
 elif opcion == "Resumen de Pedidos":
-    st.header("📋 Historial y Gestión")
+    st.header("📋 Gestión de Ventas")
     if not st.session_state.pedidos.empty:
         
-        with st.expander("⚙️ Cambiar Estado de un Pedido"):
-            col_id, col_est, col_btn = st.columns([1,2,1])
-            id_edit = col_id.selectbox("ID Pedido", st.session_state.pedidos['ID_Pedido'].tolist())
-            nuevo_est = col_est.selectbox("Nuevo Estado", ["No Despachado", "Despachado"])
-            if col_btn.button("Actualizar"):
-                idx = st.session_state.pedidos[st.session_state.pedidos['ID_Pedido'] == id_edit].index[0]
-                st.session_state.pedidos.at[idx, 'Estado'] = nuevo_est
+        # --- MENÚ DESPLEGABLE PARA CAMBIAR ESTADO ---
+        st.markdown("### ⚙️ Actualizar Estado de Entrega")
+        with st.container():
+            col_sel, col_est, col_acc = st.columns([2,2,1])
+            id_lista = st.session_state.pedidos['ID_Pedido'].tolist()
+            id_a_editar = col_sel.selectbox("Seleccionar Nro de Pedido", id_lista)
+            
+            # Obtener estado actual para el valor por defecto
+            estado_actual = st.session_state.pedidos[st.session_state.pedidos['ID_Pedido'] == id_a_editar]['Estado'].values[0]
+            opciones_estado = ["No Despachado", "Despachado"]
+            idx_defecto = opciones_estado.index(estado_actual)
+            
+            nuevo_estado = col_est.selectbox("Cambiar a:", opciones_estado, index=idx_defecto)
+            
+            if col_acc.button("Actualizar"):
+                idx_original = st.session_state.pedidos[st.session_state.pedidos['ID_Pedido'] == id_a_editar].index[0]
+                st.session_state.pedidos.at[idx_original, 'Estado'] = nuevo_estado
+                st.toast(f"Pedido #{id_a_editar} actualizado a {nuevo_estado}")
                 st.rerun()
 
+        st.divider()
+        
+        # TABLA DE RESUMEN
         df_resumen = st.session_state.pedidos.copy()
         df_resumen['Contenido'] = df_resumen['Detalle'].apply(formatear_detalle_texto)
         
-        # Formatear total en la tabla principal
-        st.dataframe(df_resumen[['ID_Pedido', 'Fecha', 'Nombre', 'Contenido', 'Total', 'Estado']].style.format({"Total": "{:.2f}"}), height=400)
+        st.dataframe(
+            df_resumen[['ID_Pedido', 'Fecha', 'Nombre', 'Contenido', 'Total', 'Estado']].style.format({"Total": "{:.2f}"}), 
+            height=400,
+            use_container_width=True
+        )
         
-        st.markdown(f"### Venta Total: {st.session_state.pedidos['Total'].sum():.2f} Bs")
+        st.markdown(f"### Venta Total Acumulada: {st.session_state.pedidos['Total'].sum():.2f} Bs")
         
         csv = st.session_state.pedidos.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Descargar Excel", csv, "ventas_kefit.csv")
@@ -150,23 +161,24 @@ elif opcion == "Resumen de Pedidos":
 
 # --- 4. RESUMEN POR ATRIBUTO ---
 elif opcion == "Resumen por Atributo":
-    st.header("📊 Rankings de mosadiet.nutrition")
+    st.header("📊 Estadísticas de Negocio")
     if not st.session_state.pedidos.empty:
-        # PRODUCTOS
-        st.subheader("🥤 Batidos más pedidos (Unidades)")
-        items_all = []
-        for d in st.session_state.pedidos['Detalle']:
-            for i in ast.literal_eval(d):
-                items_all.append({"Producto": f"{i['Batido']} ({i['Pres']})", "Cant": i['Cant']})
-        st.table(pd.DataFrame(items_all).groupby("Producto")["Cant"].sum().sort_values(ascending=False))
+        col_r1, col_r2 = st.columns(2)
+        
+        with col_r1:
+            st.subheader("🥤 Productos más pedidos")
+            items_all = []
+            for d in st.session_state.pedidos['Detalle']:
+                for i in ast.literal_eval(d):
+                    items_all.append({"Producto": f"{i['Batido']} ({i['Pres']})", "Cant": i['Cant']})
+            st.table(pd.DataFrame(items_all).groupby("Producto")["Cant"].sum().sort_values(ascending=False))
 
-        # NICHOS (Recuperado)
-        st.subheader("📍 Ventas por Nicho (Ingresos Bs)")
-        rank_nicho = st.session_state.pedidos.groupby("Nicho")["Total"].sum().sort_values(ascending=False)
-        st.table(rank_nicho.map("{:.2f} Bs".format))
+        with col_r2:
+            st.subheader("📍 Ventas por Nicho")
+            rank_nicho = st.session_state.pedidos.groupby("Nicho")["Total"].sum().sort_values(ascending=False)
+            st.table(rank_nicho.map("{:.2f} Bs".format))
 
-        # CLIENTES
-        st.subheader("🏆 Mejores Clientes (Consumo Bs)")
+        st.subheader("🏆 Clientes VIP")
         rank_cli = st.session_state.pedidos.groupby("Nombre")["Total"].sum().sort_values(ascending=False)
         st.table(rank_cli.map("{:.2f} Bs".format))
-    else: st.info("Sin datos para estadísticas.")
+    else: st.info("Sin datos suficientes.")
