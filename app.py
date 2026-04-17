@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import ast # Librería para limpiar el texto de los productos
+import ast
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="mosadiet.nutrition - Kéfit", layout="wide")
@@ -53,7 +53,7 @@ if opcion == "Pedido Nuevo":
                     nuevo_id = len(st.session_state.clientes) + 1
                     nuevo = pd.DataFrame([[nuevo_id, nombre_in, ws_in, nicho_in]], columns=['ID', 'Nombre', 'WhatsApp', 'Nicho'])
                     st.session_state.clientes = pd.concat([st.session_state.clientes, nuevo], ignore_index=True)
-                    st.success(f"Registrado. Selecciónalo arriba.")
+                    st.success(f"Registrado como Cliente #{nuevo_id}.")
                     st.rerun()
     else:
         c = st.session_state.clientes[st.session_state.clientes['Nombre'] == cliente_sel].iloc[0]
@@ -72,7 +72,7 @@ if opcion == "Pedido Nuevo":
                 total_item = p_u * cant
             
             st.session_state.carrito.append({"Batido": batido, "Pres": pres, "Cant": int(cant), "Subtotal": float(total_item)})
-            st.toast(f"Añadido: {batido}")
+            st.toast("Añadido al carrito")
 
         if st.session_state.carrito:
             st.subheader("Carrito Actual")
@@ -95,32 +95,46 @@ if opcion == "Pedido Nuevo":
                 st.session_state.pedidos = pd.concat([st.session_state.pedidos, pd.DataFrame([nuevo_p])], ignore_index=True)
                 st.session_state.carrito = []
                 st.success(f"¡Pedido #{id_p} registrado!")
+                st.balloons()
 
-# --- 2. DETALLE DEL PEDIDO (VISTA MEJORADA) ---
+# --- 2. DETALLE DEL PEDIDO (VISTA CON CAMBIO DE ESTADO) ---
 elif opcion == "Detalle del Pedido":
-    st.header("🔍 Detalle del Último Pedido")
+    st.header("🔍 Seguimiento de Preparación")
     if not st.session_state.pedidos.empty:
-        p = st.session_state.pedidos.iloc[-1]
+        # Mostramos por defecto el último pedido realizado
+        # Pero permitimos seleccionar otros pedidos por ID si se desea
+        ids_pedidos = st.session_state.pedidos['ID_Pedido'].tolist()
+        id_actual = st.selectbox("Ver Pedido Nro:", ids_pedidos, index=len(ids_pedidos)-1)
+        
+        p = st.session_state.pedidos[st.session_state.pedidos['ID_Pedido'] == id_actual].iloc[0]
+        idx_original = st.session_state.pedidos[st.session_state.pedidos['ID_Pedido'] == id_actual].index[0]
         
         col_a, col_b = st.columns(2)
         with col_a:
+            st.subheader("Datos del Pedido")
             st.write(f"**Nro Pedido:** {p['ID_Pedido']}")
             st.write(f"**Fecha:** {p['Fecha']}")
-            st.write(f"**Estado:** {p['Estado']}")
-        with col_b:
             st.write(f"**Cliente:** {p['Nombre']}")
-            st.write(f"**Nicho:** {p['Nicho']}")
         
+        with col_b:
+            st.subheader("Gestión de Estado")
+            # --- AQUÍ CAMBIA EL ESTADO ---
+            nuevo_estado = st.selectbox("Estado del Pedido:", ["No Despachado", "Despachado"], 
+                                      index=0 if p['Estado'] == "No Despachado" else 1)
+            
+            if st.button("Actualizar y Guardar Estado"):
+                st.session_state.pedidos.at[idx_original, 'Estado'] = nuevo_estado
+                st.success(f"Pedido #{id_actual} marcado como {nuevo_estado}")
+                st.rerun()
+
         st.divider()
-        st.subheader("Productos Solicitados:")
-        
-        # AQUÍ ESTÁ LA MAGIA PARA QUE SE VEA BIEN
+        st.subheader("Lista de Preparación:")
         items = ast.literal_eval(p['Detalle'])
         for item in items:
-            st.markdown(f"✅ **{item['Cant']}x** {item['Batido']} ({item['Pres']}) — *{item['Subtotal']} Bs*")
+            st.markdown(f"🥤 **{item['Cant']}x** {item['Batido']} ({item['Pres']})")
         
         st.divider()
-        st.markdown(f"<h2 style='color: #88B04B;'>Total Pagado: {p['Total']} Bs</h2>", unsafe_allow_html=True)
+        st.markdown(f"## Total a Cobrar: {p['Total']} Bs")
     else: 
         st.info("No hay pedidos registrados todavía.")
 
@@ -129,21 +143,24 @@ elif opcion == "Resumen de Pedidos":
     st.header("📋 Historial de Ventas")
     if not st.session_state.pedidos.empty:
         st.dataframe(st.session_state.pedidos[['ID_Pedido', 'Fecha', 'Nombre', 'Nicho', 'Total', 'Estado']])
-        st.write(f"### Venta Total: {st.session_state.pedidos['Total'].sum()} Bs")
+        st.write(f"### Venta Total Acumulada: {st.session_state.pedidos['Total'].sum()} Bs")
         
         csv = st.session_state.pedidos.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Base de Datos", csv, "kefit_data.csv", "text/csv")
+        st.download_button("📥 Descargar Base de Datos (Backup)", csv, "kefit_ventas.csv", "text/csv")
     else: st.info("Sin datos.")
 
 # --- 4. RESUMEN POR ATRIBUTO ---
 elif opcion == "Resumen por Atributo":
-    st.header("📊 Análisis de Negocio")
+    st.header("📊 Análisis de Atributos")
     if not st.session_state.pedidos.empty:
-        st.subheader("🏆 Clientes VIP (Más compras)")
+        # Ranking de Clientes
+        st.subheader("🏆 Mejores Clientes (Ventas totales)")
         ranking = st.session_state.pedidos.groupby('Nombre')['Total'].sum().sort_values(ascending=False)
         st.table(ranking)
 
-        st.subheader("📍 Ventas por Nicho")
-        st.bar_chart(st.session_state.pedidos.groupby('Nicho')['Total'].sum())
+        # Ranking de Nichos
+        st.subheader("📍 Nichos con más movimiento")
+        nicho_rank = st.session_state.pedidos.groupby('Nicho')['Total'].sum().sort_values(ascending=False)
+        st.bar_chart(nicho_rank)
     else: 
-        st.info("Registra pedidos para ver las estadísticas.")
+        st.info("Se requiere información de pedidos para generar estadísticas.")
