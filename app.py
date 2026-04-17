@@ -97,12 +97,10 @@ if opcion == "Pedido Nuevo":
                 st.success(f"¡Pedido #{id_p} registrado!")
                 st.balloons()
 
-# --- 2. DETALLE DEL PEDIDO (VISTA CON CAMBIO DE ESTADO) ---
+# --- 2. DETALLE DEL PEDIDO ---
 elif opcion == "Detalle del Pedido":
     st.header("🔍 Seguimiento de Preparación")
     if not st.session_state.pedidos.empty:
-        # Mostramos por defecto el último pedido realizado
-        # Pero permitimos seleccionar otros pedidos por ID si se desea
         ids_pedidos = st.session_state.pedidos['ID_Pedido'].tolist()
         id_actual = st.selectbox("Ver Pedido Nro:", ids_pedidos, index=len(ids_pedidos)-1)
         
@@ -111,20 +109,15 @@ elif opcion == "Detalle del Pedido":
         
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("Datos del Pedido")
-            st.write(f"**Nro Pedido:** {p['ID_Pedido']}")
-            st.write(f"**Fecha:** {p['Fecha']}")
-            st.write(f"**Cliente:** {p['Nombre']}")
+            st.write(f"**Nro Pedido:** {p['ID_Pedido']} | **Fecha:** {p['Fecha']}")
+            st.write(f"**Cliente:** {p['Nombre']} | **Nicho:** {p['Nicho']}")
         
         with col_b:
-            st.subheader("Gestión de Estado")
-            # --- AQUÍ CAMBIA EL ESTADO ---
             nuevo_estado = st.selectbox("Estado del Pedido:", ["No Despachado", "Despachado"], 
                                       index=0 if p['Estado'] == "No Despachado" else 1)
-            
-            if st.button("Actualizar y Guardar Estado"):
+            if st.button("Guardar Estado"):
                 st.session_state.pedidos.at[idx_original, 'Estado'] = nuevo_estado
-                st.success(f"Pedido #{id_actual} marcado como {nuevo_estado}")
+                st.success("Estado actualizado.")
                 st.rerun()
 
         st.divider()
@@ -135,8 +128,7 @@ elif opcion == "Detalle del Pedido":
         
         st.divider()
         st.markdown(f"## Total a Cobrar: {p['Total']} Bs")
-    else: 
-        st.info("No hay pedidos registrados todavía.")
+    else: st.info("Sin pedidos.")
 
 # --- 3. RESUMEN DE PEDIDOS ---
 elif opcion == "Resumen de Pedidos":
@@ -144,23 +136,40 @@ elif opcion == "Resumen de Pedidos":
     if not st.session_state.pedidos.empty:
         st.dataframe(st.session_state.pedidos[['ID_Pedido', 'Fecha', 'Nombre', 'Nicho', 'Total', 'Estado']])
         st.write(f"### Venta Total Acumulada: {st.session_state.pedidos['Total'].sum()} Bs")
-        
         csv = st.session_state.pedidos.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Base de Datos (Backup)", csv, "kefit_ventas.csv", "text/csv")
+        st.download_button("📥 Descargar Backup", csv, "kefit_ventas.csv", "text/csv")
     else: st.info("Sin datos.")
 
-# --- 4. RESUMEN POR ATRIBUTO ---
+# --- 4. RESUMEN POR ATRIBUTO (MEJORADO) ---
 elif opcion == "Resumen por Atributo":
-    st.header("📊 Análisis de Atributos")
+    st.header("📊 Análisis de Popularidad")
     if not st.session_state.pedidos.empty:
-        # Ranking de Clientes
-        st.subheader("🏆 Mejores Clientes (Ventas totales)")
-        ranking = st.session_state.pedidos.groupby('Nombre')['Total'].sum().sort_values(ascending=False)
-        st.table(ranking)
+        
+        # --- PROCESAMIENTO DE PRODUCTOS MAS PEDIDOS ---
+        todos_los_items = []
+        for det in st.session_state.pedidos['Detalle']:
+            items_pedido = ast.literal_eval(det)
+            for i in items_pedido:
+                todos_los_items.append({
+                    "Producto": f"{i['Batido']} ({i['Pres']})",
+                    "Cantidad": i['Cant']
+                })
+        
+        df_items = pd.DataFrame(todos_los_items)
+        ranking_productos = df_items.groupby("Producto")["Cantidad"].sum().sort_values(ascending=False)
 
-        # Ranking de Nichos
-        st.subheader("📍 Nichos con más movimiento")
-        nicho_rank = st.session_state.pedidos.groupby('Nicho')['Total'].sum().sort_values(ascending=False)
-        st.bar_chart(nicho_rank)
+        st.subheader("🥤 Batidos más pedidos (Ranking Descendente)")
+        st.table(ranking_productos)
+
+        # --- RANKING DE NICHOS ---
+        st.subheader("📍 Nichos con mayor demanda (Bs)")
+        ranking_nicho = st.session_state.pedidos.groupby('Nicho')['Total'].sum().sort_values(ascending=False)
+        st.table(ranking_nicho)
+
+        # --- RANKING DE CLIENTES ---
+        st.subheader("🏆 Clientes que más han pagado")
+        ranking_cli = st.session_state.pedidos.groupby('Nombre')['Total'].sum().sort_values(ascending=False)
+        st.table(ranking_cli)
+        
     else: 
-        st.info("Se requiere información de pedidos para generar estadísticas.")
+        st.info("Registra pedidos para ver los rankings.")
