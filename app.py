@@ -6,7 +6,7 @@ import ast
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="mosadiet.nutrition - Kéfit", layout="wide")
 
-# --- MEMORIA DE LA APP ---
+# --- MEMORIA DE LA APP (Persiste mientras la pestaña esté abierta) ---
 if 'clientes' not in st.session_state:
     st.session_state.clientes = pd.DataFrame(columns=['ID', 'Nombre', 'WhatsApp', 'Nicho'])
 if 'pedidos' not in st.session_state:
@@ -14,7 +14,7 @@ if 'pedidos' not in st.session_state:
 if 'carrito' not in st.session_state:
     st.session_state.carrito = []
 
-# PRODUCTOS Y PRECIOS (Según tus documentos)
+# PRODUCTOS Y PRECIOS
 PRODUCTOS = {
     "Natural (Raíz)": {"1000ml": 24},
     "Sol de energía (Vitalidad)": {"350ml": 8, "1000ml": 28},
@@ -28,7 +28,7 @@ PRODUCTOS = {
 }
 NICHOS = ["gimnasio FGI", "gimnasio Andi", "Sadosa", "Emi", "tecnologico", "amigos Andi", "amigos mamita", "otros"]
 
-# ENCABEZADO VISUAL
+# ESTILOS Y LOGO
 st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>mosadiet.nutrition</h1>", unsafe_allow_html=True)
 st.markdown("<h2 style='text-align: center; color: #88B04B;'>Kéfit</h2>", unsafe_allow_html=True)
 
@@ -41,7 +41,7 @@ if opcion == "Pedido Nuevo":
     cliente_sel = st.selectbox("Seleccionar Cliente", nombres)
 
     if cliente_sel == "-- Seleccionar / Registrar Nuevo --":
-        with st.form("reg"):
+        with st.form("reg_cliente"):
             st.subheader("Registrar Nuevo Cliente")
             nombre_in = st.text_input("Nombre Completo (MAYÚSCULAS)").upper()
             ws_in = st.text_input("WhatsApp")
@@ -54,28 +54,34 @@ if opcion == "Pedido Nuevo":
                     st.rerun()
     else:
         c = st.session_state.clientes[st.session_state.clientes['Nombre'] == cliente_sel].iloc[0]
-        st.info(f"Cliente: {c['Nombre']} | Nicho: {c['Nicho']}")
+        st.success(f"Cliente: {c['Nombre']} | Nicho: {c['Nicho']}")
         
         col1, col2, col3 = st.columns(3)
         batido = col1.selectbox("Sabor", list(PRODUCTOS.keys()))
         pres = col2.selectbox("Tamaño", list(PRODUCTOS[batido].keys()))
         cant = col3.number_input("Cantidad", min_value=1, step=1)
+        
+        # MOSTRAR PRECIO UNITARIO
+        precio_u = PRODUCTOS[batido][pres]
+        st.info(f"Precio Unitario: {precio_u} Bs")
 
         if st.button("Añadir al Carrito"):
-            p_u = PRODUCTOS[batido][pres]
-            # Lógica 2x46 para Natural
             if batido == "Natural (Raíz)" and pres == "1000ml":
                 sub = (int(cant) // 2 * 46) + (int(cant) % 2 * 24)
             else:
-                sub = p_u * cant
-            st.session_state.carrito.append({"Batido": batido, "Pres": pres, "Cant": int(cant), "Subtotal": float(sub)})
+                sub = precio_u * cant
+            st.session_state.carrito.append({
+                "Batido": batido, 
+                "Pres": pres, 
+                "Cant": int(cant), 
+                "P.Unit": float(precio_u),
+                "Subtotal": float(sub)
+            })
 
         if st.session_state.carrito:
             st.subheader("Carrito Actual")
             df_car = pd.DataFrame(st.session_state.carrito)
             st.table(df_car)
-            
-            # --- TOTAL ACTUALIZADO EN TIEMPO REAL ---
             total_actual = df_car['Subtotal'].sum()
             st.markdown(f"### 💰 Total a pagar: {total_actual} Bs")
             
@@ -88,7 +94,7 @@ if opcion == "Pedido Nuevo":
                 }
                 st.session_state.pedidos = pd.concat([st.session_state.pedidos, pd.DataFrame([nuevo_p])], ignore_index=True)
                 st.session_state.carrito = []
-                st.success(f"Pedido #{id_p} guardado con éxito")
+                st.success(f"Pedido #{id_p} guardado.")
 
 # --- 2. DETALLE DEL PEDIDO ---
 elif opcion == "Detalle del Pedido":
@@ -97,57 +103,50 @@ elif opcion == "Detalle del Pedido":
         p = st.session_state.pedidos.iloc[-1]
         st.subheader(f"Pedido #{p['ID_Pedido']} - {p['Nombre']}")
         
-        col_est1, col_est2 = st.columns(2)
-        with col_est1:
-            st.write(f"**Fecha:** {p['Fecha']}")
-            st.write(f"**Nicho:** {p['Nicho']}")
-        with col_est2:
-            nuevo_est = st.selectbox("Cambiar Estado:", ["No Despachado", "Despachado"], index=0 if p['Estado'] == "No Despachado" else 1)
-            if st.button("Actualizar Estado"):
-                st.session_state.pedidos.at[st.session_state.pedidos.index[-1], 'Estado'] = nuevo_est
-                st.rerun()
+        nuevo_est = st.selectbox("Estado:", ["No Despachado", "Despachado"], index=0 if p['Estado'] == "No Despachado" else 1)
+        if st.button("Actualizar Estado"):
+            st.session_state.pedidos.at[st.session_state.pedidos.index[-1], 'Estado'] = nuevo_est
+            st.rerun()
 
         st.divider()
-        # --- VISTA LIMPIA DE PRODUCTOS ---
         items = ast.literal_eval(p['Detalle'])
         for i in items:
-            st.markdown(f"🥤 **{i['Cant']}x** {i['Batido']} ({i['Pres']}) --- {i['Subtotal']} Bs")
+            st.markdown(f"🥤 **{i['Cant']}x** {i['Batido']} ({i['Pres']}) - P.Unit: {i['P.Unit']} Bs | **Sub: {i['Subtotal']} Bs**")
         
         st.divider()
         st.markdown(f"## Total del Pedido: {p['Total']} Bs")
-    else: st.info("No hay pedidos registrados.")
+    else: st.info("No hay pedidos.")
 
 # --- 3. RESUMEN DE PEDIDOS ---
 elif opcion == "Resumen de Pedidos":
-    st.header("📋 Historial General")
+    st.header("📋 Historial de Ventas")
     if not st.session_state.pedidos.empty:
         st.dataframe(st.session_state.pedidos[['ID_Pedido', 'Fecha', 'Nombre', 'Total', 'Estado']])
-        st.markdown(f"### 💵 Venta Total Acumulada: {st.session_state.pedidos['Total'].sum()} Bs")
+        st.markdown(f"### Venta Total Acumulada: {st.session_state.pedidos['Total'].sum()} Bs")
         
+        # RESPALDO EXCEL
         csv = st.session_state.pedidos.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Respaldo (Excel)", csv, "ventas_kefit.csv")
+        st.download_button("📥 Descargar Reporte para Excel", csv, "kefit_ventas.csv")
     else: st.info("Sin datos.")
 
 # --- 4. RESUMEN POR ATRIBUTO ---
 elif opcion == "Resumen por Atributo":
-    st.header("📊 Rankings de mosadiet.nutrition")
+    st.header("📊 Rankings mosadiet.nutrition")
     if not st.session_state.pedidos.empty:
-        # 1. PRODUCTOS MÁS VENDIDOS
-        st.subheader("🥤 Productos más pedidos")
+        # 1. PRODUCTOS
+        st.subheader("🥤 Batidos más pedidos")
         items_list = []
         for d in st.session_state.pedidos['Detalle']:
             for i in ast.literal_eval(d):
                 items_list.append({"Producto": f"{i['Batido']} ({i['Pres']})", "Cantidad": i['Cant']})
-        df_rank_prod = pd.DataFrame(items_list).groupby("Producto")["Cantidad"].sum().sort_values(ascending=False)
-        st.table(df_rank_prod)
+        df_p = pd.DataFrame(items_list).groupby("Producto")["Cantidad"].sum().sort_values(ascending=False)
+        st.table(df_p)
 
-        # 2. NICHOS MÁS ACTIVOS
-        st.subheader("📍 Nichos por nivel de venta")
-        rank_nicho = st.session_state.pedidos.groupby("Nicho")["Total"].sum().sort_values(ascending=False)
-        st.table(rank_nicho)
+        # 2. NICHOS
+        st.subheader("📍 Ranking de Nichos (Ventas)")
+        st.table(st.session_state.pedidos.groupby("Nicho")["Total"].sum().sort_values(ascending=False))
 
-        # 3. CLIENTES MÁS ACTIVOS
-        st.subheader("🏆 Mejores Clientes")
-        rank_cli = st.session_state.pedidos.groupby("Nombre")["Total"].sum().sort_values(ascending=False)
-        st.table(rank_cli)
-    else: st.info("Registra pedidos para ver los rankings.")
+        # 3. CLIENTES
+        st.subheader("🏆 Clientes VIP")
+        st.table(st.session_state.pedidos.groupby("Nombre")["Total"].sum().sort_values(ascending=False))
+    else: st.info("Sin estadísticas.")
