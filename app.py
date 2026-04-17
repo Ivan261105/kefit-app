@@ -6,7 +6,7 @@ import ast
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="mosadiet.nutrition - Kéfit", layout="wide")
 
-# --- MEMORIA DE LA APP (Persiste mientras la pestaña esté abierta) ---
+# --- MEMORIA DE LA APP ---
 if 'clientes' not in st.session_state:
     st.session_state.clientes = pd.DataFrame(columns=['ID', 'Nombre', 'WhatsApp', 'Nicho'])
 if 'pedidos' not in st.session_state:
@@ -28,11 +28,18 @@ PRODUCTOS = {
 }
 NICHOS = ["gimnasio FGI", "gimnasio Andi", "Sadosa", "Emi", "tecnologico", "amigos Andi", "amigos mamita", "otros"]
 
-# ESTILOS Y LOGO
-st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>mosadiet.nutrition</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>mosadiet.nutrition</h1>", unsafe_allow_html=True)
 st.markdown("<h2 style='text-align: center; color: #88B04B;'>Kéfit</h2>", unsafe_allow_html=True)
 
 opcion = st.sidebar.radio("Navegación", ["Pedido Nuevo", "Detalle del Pedido", "Resumen de Pedidos", "Resumen por Atributo"])
+
+# --- FUNCIÓN PARA LIMPIAR EL DETALLE EN LAS TABLAS ---
+def formatear_detalle(detalle_str):
+    try:
+        lista = ast.literal_eval(detalle_str)
+        return ", ".join([f"{i['Cant']}x {i['Batido']} ({i['Pres']})" for i in lista])
+    except:
+        return detalle_str
 
 # --- 1. PEDIDO NUEVO ---
 if opcion == "Pedido Nuevo":
@@ -61,7 +68,6 @@ if opcion == "Pedido Nuevo":
         pres = col2.selectbox("Tamaño", list(PRODUCTOS[batido].keys()))
         cant = col3.number_input("Cantidad", min_value=1, step=1)
         
-        # MOSTRAR PRECIO UNITARIO
         precio_u = PRODUCTOS[batido][pres]
         st.info(f"Precio Unitario: {precio_u} Bs")
 
@@ -71,11 +77,7 @@ if opcion == "Pedido Nuevo":
             else:
                 sub = precio_u * cant
             st.session_state.carrito.append({
-                "Batido": batido, 
-                "Pres": pres, 
-                "Cant": int(cant), 
-                "P.Unit": float(precio_u),
-                "Subtotal": float(sub)
+                "Batido": batido, "Pres": pres, "Cant": int(cant), "P.Unit": float(precio_u), "Subtotal": float(sub)
             })
 
         if st.session_state.carrito:
@@ -86,19 +88,20 @@ if opcion == "Pedido Nuevo":
             st.markdown(f"### 💰 Total a pagar: {total_actual} Bs")
             
             if st.button("Confirmar Pedido Final"):
-                id_p = len(st.session_state.pedidos) + 1
                 nuevo_p = {
-                    'ID_Pedido': id_p, 'Fecha': datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    'ID_Pedido': len(st.session_state.pedidos) + 1, 
+                    'Fecha': datetime.now().strftime("%d/%m/%Y %H:%M"),
                     'ID_Cliente': c['ID'], 'Nombre': c['Nombre'], 'Nicho': c['Nicho'],
-                    'Detalle': str(st.session_state.carrito), 'Total': total_actual, 'Estado': "No Despachado"
+                    'Detalle': str(st.session_state.carrito), 
+                    'Total': total_actual, 'Estado': "No Despachado"
                 }
                 st.session_state.pedidos = pd.concat([st.session_state.pedidos, pd.DataFrame([nuevo_p])], ignore_index=True)
                 st.session_state.carrito = []
-                st.success(f"Pedido #{id_p} guardado.")
+                st.success("Pedido guardado correctamente.")
 
 # --- 2. DETALLE DEL PEDIDO ---
 elif opcion == "Detalle del Pedido":
-    st.header("🔍 Detalle de Preparación")
+    st.header("🔍 Preparación del Pedido")
     if not st.session_state.pedidos.empty:
         p = st.session_state.pedidos.iloc[-1]
         st.subheader(f"Pedido #{p['ID_Pedido']} - {p['Nombre']}")
@@ -111,42 +114,44 @@ elif opcion == "Detalle del Pedido":
         st.divider()
         items = ast.literal_eval(p['Detalle'])
         for i in items:
-            st.markdown(f"🥤 **{i['Cant']}x** {i['Batido']} ({i['Pres']}) - P.Unit: {i['P.Unit']} Bs | **Sub: {i['Subtotal']} Bs**")
-        
+            st.markdown(f"🥤 **{i['Cant']}x** {i['Batido']} ({i['Pres']}) - P.Unit: {i['P.Unit']} Bs | Sub: {i['Subtotal']} Bs")
         st.divider()
-        st.markdown(f"## Total del Pedido: {p['Total']} Bs")
+        st.markdown(f"## Total a Cobrar: {p['Total']} Bs")
     else: st.info("No hay pedidos.")
 
 # --- 3. RESUMEN DE PEDIDOS ---
 elif opcion == "Resumen de Pedidos":
     st.header("📋 Historial de Ventas")
     if not st.session_state.pedidos.empty:
-        st.dataframe(st.session_state.pedidos[['ID_Pedido', 'Fecha', 'Nombre', 'Total', 'Estado']])
+        # Creamos una copia para mostrar el detalle legible
+        df_mostrar = st.session_state.pedidos.copy()
+        df_mostrar['Contenido'] = df_mostrar['Detalle'].apply(formatear_detalle)
+        
+        # Mostramos las columnas importantes incluyendo lo que pidió el cliente
+        st.dataframe(df_mostrar[['ID_Pedido', 'Fecha', 'Nombre', 'Contenido', 'Total', 'Estado']])
+        
         st.markdown(f"### Venta Total Acumulada: {st.session_state.pedidos['Total'].sum()} Bs")
         
-        # RESPALDO EXCEL
         csv = st.session_state.pedidos.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Reporte para Excel", csv, "kefit_ventas.csv")
+        st.download_button("📥 Descargar Reporte (Excel)", csv, "kefit_ventas.csv")
     else: st.info("Sin datos.")
 
 # --- 4. RESUMEN POR ATRIBUTO ---
 elif opcion == "Resumen por Atributo":
     st.header("📊 Rankings mosadiet.nutrition")
     if not st.session_state.pedidos.empty:
-        # 1. PRODUCTOS
+        # PRODUCTOS
         st.subheader("🥤 Batidos más pedidos")
-        items_list = []
+        items_all = []
         for d in st.session_state.pedidos['Detalle']:
             for i in ast.literal_eval(d):
-                items_list.append({"Producto": f"{i['Batido']} ({i['Pres']})", "Cantidad": i['Cant']})
-        df_p = pd.DataFrame(items_list).groupby("Producto")["Cantidad"].sum().sort_values(ascending=False)
-        st.table(df_p)
+                items_all.append({"Producto": f"{i['Batido']} ({i['Pres']})", "Cantidad": i['Cant']})
+        st.table(pd.DataFrame(items_all).groupby("Producto")["Cantidad"].sum().sort_values(ascending=False))
 
-        # 2. NICHOS
-        st.subheader("📍 Ranking de Nichos (Ventas)")
+        # NICHOS
+        st.subheader("📍 Ventas por Nicho")
         st.table(st.session_state.pedidos.groupby("Nicho")["Total"].sum().sort_values(ascending=False))
 
-        # 3. CLIENTES
-        st.subheader("🏆 Clientes VIP")
+        # CLIENTES
+        st.subheader("🏆 Clientes que más compran")
         st.table(st.session_state.pedidos.groupby("Nombre")["Total"].sum().sort_values(ascending=False))
-    else: st.info("Sin estadísticas.")
